@@ -113,27 +113,30 @@
 
   /* Circular tick/cross */
   .status-circle {
-    width: 24px;
-    height: 24px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     display: inline-block;
     position: relative;
   }
+
+  /* Tick */
   .status-circle.tick {
     background-color: #28a745;
   }
   .status-circle.tick::after {
     content: '';
     position: absolute;
-    left: 7px;
-    top: 3px;
-    width: 6px;
-    height: 12px;
+    left: 8px;
+    top: 5px;
+    width: 8px;
+    height: 14px;
     border: solid white;
-    border-width: 0 2px 2px 0;
+    border-width: 0 3px 3px 0;
     transform: rotate(45deg);
   }
 
+  /* Cross */
   .status-circle.cross {
     background-color: #dc3545;
   }
@@ -141,10 +144,10 @@
   .status-circle.cross::after {
     content: '';
     position: absolute;
-    left: 6px;
-    top: 6px;
-    width: 12px;
-    height: 2px;
+    left: 7px;
+    top: 7px;
+    width: 18px;
+    height: 3px;
     background-color: white;
   }
   .status-circle.cross::before {
