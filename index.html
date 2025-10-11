@@ -1,1 +1,147 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Firebase Record Logger</title>
+<script type="module">
+  // Import Firebase SDKs
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+  import { getDatabase, ref, push, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+  // --- Same Firebase credentials ---
+  const firebaseConfig = {
+    apiKey: "AIzaSyAjBbnm8F76BCb9C5fluUyoZ2QnMSXlHOo",
+    authDomain: "test-c7bf3.firebaseapp.com",
+    databaseURL: "https://test-c7bf3-default-rtdb.firebaseio.com",
+    projectId: "test-c7bf3",
+    storageBucket: "test-c7bf3.firebasestorage.app",
+    messagingSenderId: "573697013702",
+    appId: "1:573697013702:web:fe132fc4d796c06bdbe4c7"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  // --- Add Record Function ---
+  window.addRecord = async function() {
+    const username = document.getElementById("username").value.trim();
+    const status = document.getElementById("status").value.trim();
+    const elapsed = document.getElementById("elapsed").value.trim();
+    const data = document.getElementById("data").value.trim();
+
+    if (!username || !status || !elapsed || !data) {
+      alert("Please fill all fields.");
+      return;
+    }
+
+    const newRecord = {
+      timestamp: new Date().toISOString(),
+      username: username,
+      status: status,
+      elapsedTime: elapsed,
+      data: data
+    };
+
+    await push(ref(db, "record/"), newRecord);
+    alert("Record added successfully!");
+  };
+
+  // --- View All Records Function ---
+  window.viewRecords = async function() {
+    const snapshot = await get(ref(db, "record"));
+    const records = snapshot.val();
+
+    const tableBody = document.getElementById("recordTableBody");
+    tableBody.innerHTML = "";
+
+    if (!records) {
+      tableBody.innerHTML = "<tr><td colspan='5'>No records found.</td></tr>";
+      return;
+    }
+
+    Object.values(records).forEach((rec) => {
+      const row = `<tr>
+        <td>${rec.timestamp}</td>
+        <td>${rec.username}</td>
+        <td>${rec.status}</td>
+        <td>${rec.elapsedTime}</td>
+        <td>${rec.data}</td>
+      </tr>`;
+      tableBody.innerHTML += row;
+    });
+  };
+</script>
+
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #faf6f0;
+    color: #333;
+    text-align: center;
+    margin: 20px;
+  }
+  input {
+    padding: 6px;
+    margin: 5px;
+    width: 180px;
+  }
+  button {
+    margin: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    border: none;
+    background: #3b5998;
+    color: white;
+    border-radius: 6px;
+  }
+  button:hover {
+    background: #2d4373;
+  }
+  table {
+    border-collapse: collapse;
+    margin: 20px auto;
+    width: 90%;
+    background: white;
+  }
+  th, td {
+    border: 1px solid #ccc;
+    padding: 8px;
+  }
+  th {
+    background: #e3e3e3;
+  }
+</style>
+</head>
+
+<body>
+  <h2>Firebase Record Logger</h2>
+
+  <div>
+    <input type="text" id="username" placeholder="Username">
+    <input type="text" id="status" placeholder="Status">
+    <input type="text" id="elapsed" placeholder="Elapsed Time">
+    <input type="text" id="data" placeholder="Data">
+    <br>
+    <button onclick="addRecord()">Add Record</button>
+    <button onclick="viewRecords()">View Records</button>
+  </div>
+
+  <table id="recordTable">
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Username</th>
+        <th>Status</th>
+        <th>Elapsed Time</th>
+        <th>Data</th>
+      </tr>
+    </thead>
+    <tbody id="recordTableBody">
+      <tr><td colspan="5">Click "View Records" to load data.</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>
