@@ -118,6 +118,7 @@
     border-radius: 50%;
     display: inline-block;
     position: relative;
+    margin: 0 auto;
   }
 
   /* Tick */
@@ -127,13 +128,13 @@
   .status-circle.tick::after {
     content: '';
     position: absolute;
-    left: 8px;
-    top: 5px;
-    width: 8px;
+    left: 50%;
+    top: 50%;
+    width: 6px;
     height: 14px;
     border: solid white;
-    border-width: 0 3px 3px 0;
-    transform: rotate(45deg);
+    border-width: 0 4px 4px 0;
+    transform: translate(-50%, -60%) rotate(45deg);
   }
 
   /* Cross */
@@ -144,17 +145,17 @@
   .status-circle.cross::after {
     content: '';
     position: absolute;
-    left: 7px;
-    top: 7px;
+    left: 50%;
+    top: 50%;
     width: 18px;
-    height: 3px;
+    height: 4px;
     background-color: white;
   }
   .status-circle.cross::before {
-    transform: rotate(45deg);
+    transform: translate(-50%, -50%) rotate(45deg);
   }
   .status-circle.cross::after {
-    transform: rotate(-45deg);
+    transform: translate(-50%, -50%) rotate(-45deg);
   }
 </style>
 </head>
