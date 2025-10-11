@@ -1,6 +1,6 @@
 //
 //  SceneDelegate.h
-//  AnotherButton
+//  SedraFTP
 //
 //  Created by UWaterloo on 10/9/25.
 //

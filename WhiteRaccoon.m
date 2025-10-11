@@ -366,9 +366,7 @@ static NSMutableDictionary *folders;
     return kWRDownloadRequest;
 }
 
-
-
--(void) start{
+-(void) start {
     
     if (self.hostname==nil) {
         InfoLog(@"The host name is nil!");
@@ -378,7 +376,6 @@ static NSMutableDictionary *folders;
         return;
     }
     
-    // a little bit of C because I was not able to make NSInputStream play nice
     CFReadStreamRef readStreamRef = CFReadStreamCreateWithFTPURL(NULL, (__bridge CFURLRef)self.fullURL);
     self.streamInfo.readStream = (NSInputStream *)CFBridgingRelease(readStreamRef);
     
@@ -390,14 +387,13 @@ static NSMutableDictionary *folders;
         return;
     }
     
-    
     self.streamInfo.readStream.delegate = self;
-	[self.streamInfo.readStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
-	[self.streamInfo.readStream open];
+    [self.streamInfo.readStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+    [self.streamInfo.readStream open];
     
     self.didManagedToOpenStream = NO;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kWRDefaultTimeout * NSEC_PER_SEC), dispatch_get_current_queue(), ^{
-        if (!self.didManagedToOpenStream&&self.error==nil) {
+        if (!self.didManagedToOpenStream && self.error == nil) {
             InfoLog(@"No response from the server. Timeout.");
             self.error = [[WRRequestError alloc] init];
             self.error.errorCode = kWRFTPClientStreamTimedOut;
@@ -407,36 +403,43 @@ static NSMutableDictionary *folders;
     });
 }
 
-//stream delegate
+// stream delegate
 - (void)stream:(NSStream *)theStream handleEvent:(NSStreamEvent)streamEvent {
     
     switch (streamEvent) {
         case NSStreamEventOpenCompleted: {
             self.didManagedToOpenStream = YES;
             self.streamInfo.bytesConsumedInTotal = 0;
-            self.receivedData = [NSMutableData data];
+
+            // Do NOT allocate any data buffer
+            self.receivedData = nil;
         } break;
+            
         case NSStreamEventHasBytesAvailable: {
+            self.streamInfo.bytesConsumedThisIteration =
+                [self.streamInfo.readStream read:self.streamInfo.buffer maxLength:kWRDefaultBufferSize];
             
-            self.streamInfo.bytesConsumedThisIteration = [self.streamInfo.readStream read:self.streamInfo.buffer maxLength:kWRDefaultBufferSize];
-            
-            if (self.streamInfo.bytesConsumedThisIteration!=-1) {
-                if (self.streamInfo.bytesConsumedThisIteration!=0) {
-                    NSMutableData *receivedMutableData = (NSMutableData *) self.receivedData;
-                    [receivedMutableData appendBytes:self.streamInfo.buffer length:self.streamInfo.bytesConsumedThisIteration];
-                }
-            }else{
+            if (self.streamInfo.bytesConsumedThisIteration > 0) {
+                // Instead of appending or storing, just count the bytes
+                self.streamInfo.bytesConsumedInTotal += self.streamInfo.bytesConsumedThisIteration;
+
+                // Overwrite the same buffer each time — no accumulation
+                // Optionally inform delegate if you need live monitoring:
+                // [self.delegate requestDataAvailable:self];
+            }
+            else if (self.streamInfo.bytesConsumedThisIteration == -1) {
                 InfoLog(@"Stream opened, but failed while trying to read from it.");
                 self.error = [[WRRequestError alloc] init];
                 self.error.errorCode = kWRFTPClientCantReadStream;
                 [self.delegate requestFailed:self];
                 [self destroy];
             }
-            
         } break;
+            
         case NSStreamEventHasSpaceAvailable: {
-            
+            // not used
         } break;
+            
         case NSStreamEventErrorOccurred: {
             self.error = [[WRRequestError alloc] init];
             self.error.errorCode = [self.error errorCodeWithError:[theStream streamError]];
@@ -446,19 +449,17 @@ static NSMutableDictionary *folders;
         } break;
             
         case NSStreamEventEndEncountered: {
-            [self.delegate requestCompleted:self]; 
+            [self.delegate requestCompleted:self];
             [self destroy];
         } break;
             
         case NSStreamEventNone:
-        {
-            ;
-        }break;
+        default:
+            break;
     }
 }
 
--(void) destroy{
-    
+-(void) destroy {
     if (self.streamInfo.readStream) {
         [self.streamInfo.readStream close];
         [self.streamInfo.readStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
@@ -468,16 +469,7 @@ static NSMutableDictionary *folders;
     [super destroy];
 }
 
-
 @end
-
-
-
-
-
-
-
-
 
 
 
