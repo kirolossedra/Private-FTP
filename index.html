@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,11 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Firebase Record Logger</title>
 <script type="module">
-  // Import Firebase SDKs
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
   import { getDatabase, ref, push, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
-  // --- Same Firebase credentials ---
   const firebaseConfig = {
     apiKey: "AIzaSyAjBbnm8F76BCb9C5fluUyoZ2QnMSXlHOo",
     authDomain: "test-c7bf3.firebaseapp.com",
@@ -21,11 +18,9 @@
     appId: "1:573697013702:web:fe132fc4d796c06bdbe4c7"
   };
 
-  // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  // --- Add Record Function ---
   window.addRecord = async function() {
     const username = document.getElementById("username").value.trim();
     const status = document.getElementById("status").value.trim();
@@ -49,7 +44,6 @@
     alert("Record added successfully!");
   };
 
-  // --- View All Records Function ---
   window.viewRecords = async function() {
     const snapshot = await get(ref(db, "record"));
     const records = snapshot.val();
@@ -63,10 +57,12 @@
     }
 
     Object.values(records).forEach((rec) => {
+      const statusClass = rec.status === "1" ? "tick" : "cross";
+
       const row = `<tr>
         <td>${rec.timestamp}</td>
         <td>${rec.username}</td>
-        <td>${rec.status}</td>
+        <td style="text-align:center;"><div class="status-circle ${statusClass}"></div></td>
         <td>${rec.elapsedTime}</td>
         <td>${rec.data}</td>
       </tr>`;
@@ -96,6 +92,7 @@
     background: #3b5998;
     color: white;
     border-radius: 6px;
+    transition: background 0.2s;
   }
   button:hover {
     background: #2d4373;
@@ -113,6 +110,49 @@
   th {
     background: #e3e3e3;
   }
+
+  /* Circular tick/cross */
+  .status-circle {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-block;
+    position: relative;
+  }
+  .status-circle.tick {
+    background-color: #28a745;
+  }
+  .status-circle.tick::after {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 3px;
+    width: 6px;
+    height: 12px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  .status-circle.cross {
+    background-color: #dc3545;
+  }
+  .status-circle.cross::before,
+  .status-circle.cross::after {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 6px;
+    width: 12px;
+    height: 2px;
+    background-color: white;
+  }
+  .status-circle.cross::before {
+    transform: rotate(45deg);
+  }
+  .status-circle.cross::after {
+    transform: rotate(-45deg);
+  }
 </style>
 </head>
 
@@ -121,7 +161,7 @@
 
   <div>
     <input type="text" id="username" placeholder="Username">
-    <input type="text" id="status" placeholder="Status">
+    <input type="text" id="status" placeholder="Status (1=tick, else=cross)">
     <input type="text" id="elapsed" placeholder="Elapsed Time">
     <input type="text" id="data" placeholder="Data">
     <br>
