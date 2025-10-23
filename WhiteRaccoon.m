@@ -45,7 +45,7 @@
 static NSMutableDictionary *folders;
 
 + (void)initialize
-{    
+{
     static BOOL isCacheInitalized = NO;
     if(!isCacheInitalized)
     {
@@ -86,7 +86,7 @@ static NSMutableDictionary *folders;
 -(NSString *)path {
     //  we remove all the extra slashes from the directory path, including the last one (if there is one)
     //  we also escape it
-    NSString * escapedPath = [path stringByStandardizingPath];   
+    NSString * escapedPath = [path stringByStandardizingPath];
     
     
     //  we need the path to be absolute, if it's not, we *make* it
@@ -127,7 +127,7 @@ static NSMutableDictionary *folders;
     hostname = hostnamelocal;
 }
 
--(NSString *) credentials {    
+-(NSString *) credentials {
     
     NSString * cred;
     
@@ -197,8 +197,8 @@ static NSMutableDictionary *folders;
     }
     
     if (headRequest == nil) {
-        headRequest = tailRequest;        
-    }    
+        headRequest = tailRequest;
+    }
 }
 
 -(void) addRequestInFront:(WRRequest *) request {
@@ -221,7 +221,7 @@ static NSMutableDictionary *folders;
     }
     
     if (tailRequest == nil) {
-        tailRequest = request;        
+        tailRequest = request;
     }
     
     
@@ -252,7 +252,7 @@ static NSMutableDictionary *folders;
     [headRequest start];
 }
 
--(void) destroy{    
+-(void) destroy{
     [headRequest destroy];
     headRequest.nextRequest = nil;
     [super destroy];
@@ -269,14 +269,14 @@ static NSMutableDictionary *folders;
     if (headRequest==nil) {
        [self.delegate queueCompleted:self];
     }else{
-       [headRequest start]; 
+       [headRequest start];
     }
 }
 
--(void) requestFailed:(WRRequest *) request{    
+-(void) requestFailed:(WRRequest *) request{
     [self.delegate requestFailed:request];
     
-    headRequest = headRequest.nextRequest;    
+    headRequest = headRequest.nextRequest;
     
     [headRequest start];
 }
@@ -410,9 +410,13 @@ static NSMutableDictionary *folders;
         case NSStreamEventOpenCompleted: {
             self.didManagedToOpenStream = YES;
             self.streamInfo.bytesConsumedInTotal = 0;
-
-            // Do NOT allocate any data buffer
             self.receivedData = nil;
+            
+            NSString *fileName = [self.fullURL lastPathComponent] ?: @"downloaded_file";
+            NSURL *documentsURL = [[NSFileManager defaultManager] URLForDirectory:NSDocumentDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:nil];
+            NSURL *fileURL = [documentsURL URLByAppendingPathComponent:fileName];
+            
+            [[NSFileManager defaultManager] createFileAtPath:[fileURL path] contents:nil attributes:nil];
         } break;
             
         case NSStreamEventHasBytesAvailable: {
@@ -420,12 +424,17 @@ static NSMutableDictionary *folders;
                 [self.streamInfo.readStream read:self.streamInfo.buffer maxLength:kWRDefaultBufferSize];
             
             if (self.streamInfo.bytesConsumedThisIteration > 0) {
-                // Instead of appending or storing, just count the bytes
                 self.streamInfo.bytesConsumedInTotal += self.streamInfo.bytesConsumedThisIteration;
-
-                // Overwrite the same buffer each time — no accumulation
-                // Optionally inform delegate if you need live monitoring:
-                // [self.delegate requestDataAvailable:self];
+                
+                NSString *fileName = [self.fullURL lastPathComponent] ?: @"downloaded_file";
+                NSURL *documentsURL = [[NSFileManager defaultManager] URLForDirectory:NSDocumentDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:nil];
+                NSURL *fileURL = [documentsURL URLByAppendingPathComponent:fileName];
+                
+                NSFileHandle *fileHandle = [NSFileHandle fileHandleForWritingAtPath:[fileURL path]];
+                [fileHandle seekToEndOfFile];
+                NSData *chunk = [NSData dataWithBytes:self.streamInfo.buffer length:self.streamInfo.bytesConsumedThisIteration];
+                [fileHandle writeData:chunk];
+                [fileHandle closeFile];
             }
             else if (self.streamInfo.bytesConsumedThisIteration == -1) {
                 InfoLog(@"Stream opened, but failed while trying to read from it.");
@@ -458,6 +467,7 @@ static NSMutableDictionary *folders;
             break;
     }
 }
+
 
 -(void) destroy {
     if (self.streamInfo.readStream) {
@@ -514,7 +524,7 @@ static NSMutableDictionary *folders;
 }
 
 -(void) destroy{
-    [super destroy];  
+    [super destroy];
 }
 
 
@@ -556,11 +566,11 @@ static NSMutableDictionary *folders;
         self.error.errorCode = kWRFTPClientHostnameIsNil;
         [self.delegate requestFailed:self];
         return;
-    }   
+    }
     
     //we first list the directory to see if our folder is up already
     
-    self.listrequest = [[WRRequestListDirectory alloc] init];    
+    self.listrequest = [[WRRequestListDirectory alloc] init];
     self.listrequest.path = [self.path stringByDeletingLastPathComponent];
     self.listrequest.hostname = self.hostname;
     self.listrequest.username = self.username;
@@ -605,7 +615,7 @@ static NSMutableDictionary *folders;
         }
     }else{
         [self upload];
-    }    
+    }
 }
 
 
@@ -680,7 +690,7 @@ static NSMutableDictionary *folders;
                 if (self.streamInfo.bytesConsumedInTotal + self.streamInfo.bytesConsumedThisIteration<self.sentData.length) {
                     self.streamInfo.bytesConsumedInTotal += self.streamInfo.bytesConsumedThisIteration;
                 }else{
-                    [self.delegate requestCompleted:self]; 
+                    [self.delegate requestCompleted:self];
                     self.sentData =nil;
                     [self destroy];
                 }
@@ -900,8 +910,8 @@ static NSMutableDictionary *folders;
     
     
     self.streamInfo.readStream.delegate = self;
-	[self.streamInfo.readStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
-	[self.streamInfo.readStream open];
+    [self.streamInfo.readStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+    [self.streamInfo.readStream open];
     
     self.didManagedToOpenStream = NO;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kWRDefaultTimeout * NSEC_PER_SEC), dispatch_get_current_queue(), ^{
@@ -921,7 +931,7 @@ static NSMutableDictionary *folders;
     
     switch (streamEvent) {
         case NSStreamEventOpenCompleted: {
-			self.filesInfo = [NSMutableArray array];
+            self.filesInfo = [NSMutableArray array];
             self.didManagedToOpenStream = YES;
         } break;
         case NSStreamEventHasBytesAvailable: {
@@ -943,9 +953,9 @@ static NSMutableDictionary *folders;
                         parsedBytes = CFFTPCreateParsedResourceListing(NULL, &((const uint8_t *) self.listData.bytes)[offset], self.listData.length - offset, &listingEntity);
                         
                         if (parsedBytes > 0) {
-                            if (listingEntity != NULL) {            
+                            if (listingEntity != NULL) {
                                 self.filesInfo = [self.filesInfo arrayByAddingObject:(NSDictionary *)CFBridgingRelease(listingEntity)];
-                            }            
+                            }
                             offset += (NSUInteger)parsedBytes;
                         }
                         
@@ -975,9 +985,9 @@ static NSMutableDictionary *folders;
             [self.delegate requestFailed:self];
             [self destroy];
         } break;
-        case NSStreamEventEndEncountered: {            
+        case NSStreamEventEndEncountered: {
             [WRBase addFoldersToCache:self.filesInfo forParentFolderPath:self.path];
-            [self.delegate requestCompleted:self]; 
+            [self.delegate requestCompleted:self];
             [self destroy];
         } break;
             
@@ -1059,7 +1069,7 @@ static NSMutableDictionary *folders;
             
             
             
-        //Server errors    
+        //Server errors
         case kWRFTPServerAbortedTransfer:
             mess = @"Server connection interrupted.";
             break;
@@ -1111,4 +1121,3 @@ static NSMutableDictionary *folders;
 
 
 @end
-
