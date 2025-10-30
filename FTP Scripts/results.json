@@ -1,0 +1,222 @@
+{
+	"start":	{
+		"connected":	[{
+				"socket":	5,
+				"local_host":	"192.168.0.138",
+				"local_port":	60790,
+				"remote_host":	"192.168.0.201",
+				"remote_port":	5201
+			}],
+		"version":	"iperf 3.18",
+		"system_info":	"Darwin eduroam-campus-10-36-61-41.campus-dynamic.uwaterloo.ca 25.0.0 Darwin Kernel Version 25.0.0: Mon Aug 25 21:17:51 PDT 2025; root:xnu-12377.1.9~3/RELEASE_ARM64_T6000 arm64",
+		"timestamp":	{
+			"time":	"Tue, 14 Oct 2025 16:54:12 UTC",
+			"timesecs":	1760460852
+		},
+		"connecting_to":	{
+			"host":	"192.168.0.201",
+			"port":	5201
+		},
+		"cookie":	"c7tvi56424hupgvyxdw3mo55hpfrpowquf75",
+		"target_bitrate":	0,
+		"fq_rate":	0,
+		"sock_bufsize":	0,
+		"sndbuf_actual":	9216,
+		"rcvbuf_actual":	786896,
+		"test_start":	{
+			"protocol":	"UDP",
+			"num_streams":	1,
+			"blksize":	1448,
+			"omit":	0,
+			"duration":	9000,
+			"bytes":	0,
+			"blocks":	0,
+			"reverse":	0,
+			"tos":	0,
+			"target_bitrate":	0,
+			"bidir":	0,
+			"fqrate":	0,
+			"interval":	1
+		}
+	},
+	"intervals":	[{
+			"streams":	[{
+					"socket":	5,
+					"start":	0,
+					"end":	1.005083,
+					"seconds":	1.0050829648971558,
+					"bytes":	124571440,
+					"bits_per_second":	991531599.68438363,
+					"packets":	86031,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	0,
+				"end":	1.005083,
+				"seconds":	1.0050829648971558,
+				"bytes":	124571440,
+				"bits_per_second":	991531599.68438363,
+				"packets":	86031,
+				"omitted":	false,
+				"sender":	true
+			}
+		}, {
+			"streams":	[{
+					"socket":	5,
+					"start":	1.005083,
+					"end":	2.005061,
+					"seconds":	0.999978005886078,
+					"bytes":	119661272,
+					"bits_per_second":	957311231.21227825,
+					"packets":	82642,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	1.005083,
+				"end":	2.005061,
+				"seconds":	0.999978005886078,
+				"bytes":	119661272,
+				"bits_per_second":	957311231.21227825,
+				"packets":	82642,
+				"omitted":	false,
+				"sender":	true
+			}
+		}, {
+			"streams":	[{
+					"socket":	5,
+					"start":	2.005061,
+					"end":	3.005085,
+					"seconds":	1.0000239610672,
+					"bytes":	119642448,
+					"bits_per_second":	957116650.46362031,
+					"packets":	82626,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	2.005061,
+				"end":	3.005085,
+				"seconds":	1.0000239610672,
+				"bytes":	119642448,
+				"bits_per_second":	957116650.46362031,
+				"packets":	82626,
+				"omitted":	false,
+				"sender":	true
+			}
+		}, {
+			"streams":	[{
+					"socket":	5,
+					"start":	3.005085,
+					"end":	4.005078,
+					"seconds":	0.99999302625656128,
+					"bytes":	119672856,
+					"bits_per_second":	957389524.58891535,
+					"packets":	82647,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	3.005085,
+				"end":	4.005078,
+				"seconds":	0.99999302625656128,
+				"bytes":	119672856,
+				"bits_per_second":	957389524.58891535,
+				"packets":	82647,
+				"omitted":	false,
+				"sender":	true
+			}
+		}, {
+			"streams":	[{
+					"socket":	5,
+					"start":	4.005078,
+					"end":	5.005069,
+					"seconds":	0.999990999698639,
+					"bytes":	120085536,
+					"bits_per_second":	960692934.52592623,
+					"packets":	82932,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	4.005078,
+				"end":	5.005069,
+				"seconds":	0.999990999698639,
+				"bytes":	120085536,
+				"bits_per_second":	960692934.52592623,
+				"packets":	82932,
+				"omitted":	false,
+				"sender":	true
+			}
+		}, {
+			"streams":	[{
+					"socket":	5,
+					"start":	5.005069,
+					"end":	6.005071,
+					"seconds":	1.0000020265579224,
+					"bytes":	119898744,
+					"bits_per_second":	959188008.149943,
+					"packets":	82803,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	5.005069,
+				"end":	6.005071,
+				"seconds":	1.0000020265579224,
+				"bytes":	119898744,
+				"bits_per_second":	959188008.149943,
+				"packets":	82803,
+				"omitted":	false,
+				"sender":	true
+			}
+		}, {
+			"streams":	[{
+					"socket":	5,
+					"start":	6.005071,
+					"end":	7.005078,
+					"seconds":	1.0000070333480835,
+					"bytes":	120144904,
+					"bits_per_second":	961152471.880104,
+					"packets":	82973,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	6.005071,
+				"end":	7.005078,
+				"seconds":	1.0000070333480835,
+				"bytes":	120144904,
+				"bits_per_second":	961152471.880104,
+				"packets":	82973,
+				"omitted":	false,
+				"sender":	true
+			}
+		}, {
+			"streams":	[{
+					"socket":	5,
+					"start":	6.005071,
+					"end":	7.005078,
+					"seconds":	1.0000070333480835,
+					"bytes":	120144904,
+					"bits_per_second":	961152471.880104,
+					"packets":	82973,
+					"omitted":	false,
+					"sender":	true
+				}],
+			"sum":	{
+				"start":	6.005071,
+				"end":	7.005078,
+				"seconds":	1.0000070333480835,
+				"bytes":	120144904,
+				"bits_per_second":	961152471.880104,
+				"packets":	82973,
+				"omitted":	false,
+				"sender":	true
+			}
+		}],
+	"end":	{
+	},
+	"error":	"unable to send control message - port may not be available, the other side may have stopped running, etc.: Broken pipe"
+}
