@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Firebase Record Logger</title>
+<title>Firebase Record Logger with Password</title>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-  import { getDatabase, ref, push, get } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+  import { getDatabase, ref, push, get, set } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyAjBbnm8F76BCb9C5fluUyoZ2QnMSXlHOo",
@@ -20,6 +20,35 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
+
+  async function checkPassword() {
+    const passwordRef = ref(db, "auth/password");
+    const snapshot = await get(passwordRef);
+    const storedPass = snapshot.val();
+
+    if (!storedPass) {
+      const newPass = prompt("Create a new password to secure your database access:");
+      if (!newPass || newPass.trim() === "") {
+        alert("Password cannot be empty. Reloading page.");
+        location.reload();
+        return;
+      }
+      await set(passwordRef, newPass);
+      alert("Password saved! Welcome.");
+      enableAccess();
+    } else {
+      const entered = prompt("Enter password:");
+      if (entered !== storedPass) {
+        alert("Wrong password! Reload to try again.");
+      } else {
+        enableAccess();
+      }
+    }
+  }
+
+  function enableAccess() {
+    document.getElementById("appContent").style.display = "block";
+  }
 
   window.addRecord = async function() {
     const username = document.getElementById("username").value.trim();
@@ -41,7 +70,7 @@
     };
 
     await push(ref(db, "record/"), newRecord);
-    alert("Record added successfully!");
+    alert("Record added!");
   };
 
   window.viewRecords = async function() {
@@ -57,7 +86,7 @@
     }
 
     Object.values(records).forEach((rec) => {
-      const statusClass = (rec.status === "1"||rec.status === 1) ? "tick" : "cross";
+      const statusClass = (rec.status === "1" || rec.status === 1) ? "tick" : "cross";
 
       const row = `<tr>
         <td>${rec.timestamp}</td>
@@ -69,6 +98,9 @@
       tableBody.innerHTML += row;
     });
   };
+
+  // Run password check on load
+  window.onload = checkPassword;
 </script>
 
 <style>
@@ -111,7 +143,6 @@
     background: #e3e3e3;
   }
 
-  /* Circular tick/cross */
   .status-circle {
     width: 32px;
     height: 32px;
@@ -121,7 +152,6 @@
     margin: 0 auto;
   }
 
-  /* Tick */
   .status-circle.tick {
     background-color: #28a745;
   }
@@ -137,7 +167,6 @@
     transform: translate(-50%, -60%) rotate(45deg);
   }
 
-  /* Cross */
   .status-circle.cross {
     background-color: #dc3545;
   }
@@ -157,35 +186,41 @@
   .status-circle.cross::after {
     transform: translate(-50%, -50%) rotate(-45deg);
   }
+
+  #appContent {
+    display: none;
+  }
 </style>
 </head>
 
 <body>
-  <h2>Firebase Record Logger</h2>
 
-  <div>
+  <h2>Secure Firebase Record Logger</h2>
+
+  <div id="appContent">
     <input type="text" id="username" placeholder="Username">
-    <input type="text" id="status" placeholder="Status (1=tick, else=cross)">
+    <input type="text" id="status" placeholder="Status (1=tick)">
     <input type="text" id="elapsed" placeholder="Elapsed Time">
     <input type="text" id="data" placeholder="Data">
     <br>
     <button onclick="addRecord()">Add Record</button>
     <button onclick="viewRecords()">View Records</button>
+
+    <table id="recordTable">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Username</th>
+          <th>Status</th>
+          <th>Elapsed Time</th>
+          <th>Data</th>
+        </tr>
+      </thead>
+      <tbody id="recordTableBody">
+        <tr><td colspan="5">Click "View Records" to load data.</td></tr>
+      </tbody>
+    </table>
   </div>
 
-  <table id="recordTable">
-    <thead>
-      <tr>
-        <th>Timestamp</th>
-        <th>Username</th>
-        <th>Status</th>
-        <th>Elapsed Time</th>
-        <th>Data</th>
-      </tr>
-    </thead>
-    <tbody id="recordTableBody">
-      <tr><td colspan="5">Click "View Records" to load data.</td></tr>
-    </tbody>
-  </table>
 </body>
 </html>
