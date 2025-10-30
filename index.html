@@ -57,7 +57,7 @@
     }
 
     Object.values(records).forEach((rec) => {
-      const statusClass = rec.status === "1" ? "tick" : "cross";
+      const statusClass = (rec.status === "1"||rec.status === 1) ? "tick" : "cross";
 
       const row = `<tr>
         <td>${rec.timestamp}</td>
