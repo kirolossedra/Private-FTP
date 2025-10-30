@@ -14,7 +14,7 @@
     margin: 20px;
   }
 
-  /* Password screen styles */
+  /* Password screen */
   .modal {
     position: fixed;
     top: 0; left: 0;
@@ -31,9 +31,6 @@
     border-radius: 10px;
     width: 300px;
     box-shadow: 0 0 14px rgba(0,0,0,0.25);
-  }
-  .password-box h3 {
-    margin-top: 0;
   }
 
   input {
@@ -114,7 +111,8 @@
 </head>
 
 <body>
-  <!-- PASSWORD SETUP UI (First Time) -->
+
+  <!-- Create Password Modal -->
   <div class="modal" id="setupModal" style="display:none;">
     <div class="password-box">
       <h3>Create Password</h3>
@@ -123,7 +121,7 @@
     </div>
   </div>
 
-  <!-- PASSWORD LOGIN UI -->
+  <!-- Login Modal -->
   <div class="modal" id="loginModal" style="display:none;">
     <div class="password-box">
       <h3>Enter Password</h3>
@@ -132,7 +130,6 @@
     </div>
   </div>
 
-  <!-- ORIGINAL APP CONTENT -->
   <div id="appContent" style="display:none;">
     <h2>Firebase Record Logger</h2>
 
@@ -183,11 +180,8 @@
 
   async function init() {
     const snap = await get(ref(db, "auth/password"));
-    if (snap.exists()) {
-      loginModal.style.display = "flex";
-    } else {
-      setupModal.style.display = "flex";
-    }
+    if (snap.exists()) loginModal.style.display = "flex";
+    else setupModal.style.display = "flex";
   }
   init();
 
@@ -210,17 +204,28 @@
     }
   }
 
+  // ✅ Enter Key Support Added
+  document.getElementById("setupPass").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") setPassword();
+  });
+  document.getElementById("loginPass").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") checkLogin();
+  });
+
   window.addRecord = async function() {
     const username = document.getElementById("username").value.trim();
     const status = document.getElementById("status").value.trim();
     const elapsed = document.getElementById("elapsed").value.trim();
     const data = document.getElementById("data").value.trim();
-    if (!username || !status || !elapsed || !data) return alert("Fill all fields");
+    if (!username || !status || !elapsed || !data)
+      return alert("Fill all fields");
     await push(ref(db, "record/"), {
       timestamp: new Date().toISOString(),
-      username, status, elapsedTime: elapsed, data
+      username, status,
+      elapsedTime: elapsed,
+      data
     });
-    alert("Record added successfully!");
+    alert("Record added!");
   }
 
   window.viewRecords = async function() {
@@ -229,7 +234,7 @@
     const tableBody = document.getElementById("recordTableBody");
     tableBody.innerHTML = "";
     if (!records) {
-      tableBody.innerHTML = "<tr><td colspan='5'>No records yet.</td></tr>";
+      tableBody.innerHTML = "<tr><td colspan='5'>No records.</td></tr>";
       return;
     }
     Object.values(records).forEach((rec) => {
@@ -238,7 +243,9 @@
       <tr>
         <td>${rec.timestamp}</td>
         <td>${rec.username}</td>
-        <td style="text-align:center;"><div class="status-circle ${statusClass}"></div></td>
+        <td style="text-align:center;">
+          <div class="status-circle ${statusClass}"></div>
+        </td>
         <td>${rec.elapsedTime}</td>
         <td>${rec.data}</td>
       </tr>`;
