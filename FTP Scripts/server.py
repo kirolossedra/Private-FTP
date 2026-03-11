@@ -5,6 +5,7 @@ from pyftpdlib.servers import FTPServer
 # Set up user credentials
 authorizer = DummyAuthorizer()
 authorizer.add_user("user", "pass", ".", perm="elr")  # e=read, l=list, r=read
+authorizer.add_user("user20", "pass", ".", perm="elr")  # e=read, l=list, r=read
 
 # FTP handler
 handler = FTPHandler
