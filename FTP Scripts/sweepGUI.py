@@ -6,6 +6,7 @@ import threading
 import os
 import csv
 from datetime import datetime
+from queue import Queue, Empty
 
 import numpy as np
 import serial
@@ -32,57 +33,109 @@ def getport():
 
 
 class TinySA:
-
     def __init__(self, port):
-        self.ser = serial.Serial(port, 115200, timeout=1)
+        self.ser = serial.Serial(port, 115200, timeout=1, write_timeout=2)
+        self.lock = threading.Lock()
 
-    def scan(self, f_low, f_high, points, rbw):
+    def close(self):
+        with self.lock:
+            try:
+                if self.ser and self.ser.is_open:
+                    self.ser.close()
+            except Exception:
+                pass
 
-        while self.ser.in_waiting:
-            self.ser.read_all()
-            time.sleep(0.05)
+    def _drain_input(self):
+        # Do not loop forever. Drain a few times only.
+        for _ in range(5):
+            waiting = self.ser.in_waiting
+            if waiting <= 0:
+                break
+            self.ser.read(waiting)
+            time.sleep(0.01)
 
-        if rbw == 0:
-            rbw_k = (f_high - f_low) * 7e-6
-        else:
-            rbw_k = rbw / 1e3
+    def _read_until_with_abort(self, marker, stop_event, hard_timeout_s):
+        start = time.time()
+        buf = bytearray()
 
-        rbw_k = max(3, min(600, rbw_k))
+        while True:
+            if stop_event.is_set():
+                raise RuntimeError("Scan stopped by user")
 
-        self.ser.write(f"rbw {int(rbw_k)}\r".encode())
-        self.ser.read_until(b"ch> ")
+            if time.time() - start > hard_timeout_s:
+                raise TimeoutError(f"Timed out waiting for {marker!r}")
 
-        timeout = ((f_high - f_low) / 20e3) / (rbw_k ** 2) + points / 500 + 1
-        self.ser.timeout = timeout * 2
+            chunk = self.ser.read(1)
+            if chunk:
+                buf += chunk
+                if buf.endswith(marker):
+                    return bytes(buf)
+            else:
+                time.sleep(0.002)
 
-        self.ser.write(f"scanraw {int(f_low)} {int(f_high)} {int(points)}\r".encode())
+    def scan(self, f_low, f_high, points, rbw, stop_event):
+        with self.lock:
+            if stop_event.is_set():
+                raise RuntimeError("Scan stopped by user")
 
-        self.ser.read_until(b"{")
-        raw = self.ser.read_until(b"}ch> ")
+            self._drain_input()
 
-        self.ser.write(b"rbw auto\r")
-        self.ser.read_until(b"ch> ")
+            if rbw == 0:
+                rbw_k = (f_high - f_low) * 7e-6
+            else:
+                rbw_k = rbw / 1e3
 
-        payload = raw[:-5]
+            rbw_k = max(3, min(600, rbw_k))
 
-        data = struct.unpack("<" + "xH" * points, payload)
+            self.ser.write(f"rbw {int(rbw_k)}\r".encode())
+            self._read_until_with_abort(b"ch> ", stop_event, hard_timeout_s=3.0)
 
-        arr = np.array(data, dtype=np.uint16)
+            timeout = ((f_high - f_low) / 20e3) / (rbw_k ** 2) + points / 500 + 1
+            hard_timeout = max(3.0, timeout * 2.0)
+            self.ser.timeout = 0.2
 
-        SCALE = 128
-        power = arr / 32 - SCALE
+            self.ser.write(f"scanraw {int(f_low)} {int(f_high)} {int(points)}\r".encode())
 
-        return power
+            self._read_until_with_abort(b"{", stop_event, hard_timeout_s=hard_timeout)
+            raw = self._read_until_with_abort(b"}ch> ", stop_event, hard_timeout_s=hard_timeout)
+
+            # Best effort to restore auto RBW. Ignore failures during stop.
+            try:
+                if not stop_event.is_set():
+                    self.ser.write(b"rbw auto\r")
+                    self._read_until_with_abort(b"ch> ", stop_event, hard_timeout_s=3.0)
+            except Exception:
+                pass
+
+            payload = raw[:-5]
+
+            expected_len = points * 3
+            if len(payload) != expected_len:
+                raise ValueError(
+                    f"Unexpected payload length: got {len(payload)}, expected {expected_len}"
+                )
+
+            data = struct.unpack("<" + "xH" * points, payload)
+            arr = np.array(data, dtype=np.uint16)
+
+            SCALE = 128
+            power = arr / 32 - SCALE
+
+            return power
 
 
 class RTPlotter:
-
     def __init__(self, root):
-
         self.root = root
         root.title("tinySA RT Plotter")
 
         self.running = False
+        self.worker = None
+        self.stop_event = threading.Event()
+        self.data_lock = threading.Lock()
+        self.msg_queue = Queue()
+
+        self.tiny = None
         self.maxhold = None
         self.freq = None
         self.power = None
@@ -95,13 +148,10 @@ class RTPlotter:
         self.cycle_start_time = None
         self.cycle_scan_count = 0
 
-        self.lock = threading.Lock()
-
         self.build_gui()
         self.build_plot()
 
     def build_gui(self):
-
         frame = ttk.Frame(self.root, padding=10)
         frame.pack(fill=tk.X)
 
@@ -178,8 +228,9 @@ class RTPlotter:
         self.meas_status = tk.StringVar(value="Measurements: 0")
         ttk.Label(self.root, textvariable=self.meas_status, relief=tk.SUNKEN, anchor="w").pack(fill=tk.X)
 
-    def build_plot(self):
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+    def build_plot(self):
         self.fig = Figure(figsize=(10, 5))
         self.ax = self.fig.add_subplot(111)
 
@@ -195,8 +246,26 @@ class RTPlotter:
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-    def detect(self):
+    def post_status(self, text):
+        self.msg_queue.put(("status", text))
 
+    def post_meas_status(self, text):
+        self.msg_queue.put(("meas_status", text))
+
+    def process_ui_queue(self):
+        try:
+            while True:
+                kind, text = self.msg_queue.get_nowait()
+                if kind == "status":
+                    self.status.set(text)
+                elif kind == "meas_status":
+                    self.meas_status.set(text)
+        except Empty:
+            pass
+
+        self.root.after(50, self.process_ui_queue)
+
+    def detect(self):
         try:
             p = getport()
             self.port.set(p)
@@ -205,31 +274,36 @@ class RTPlotter:
             messagebox.showerror("Error", str(e))
 
     def reset_max(self):
-        with self.lock:
+        with self.data_lock:
             self.maxhold = None
             self.cycle_start_time = time.time()
             self.cycle_scan_count = 0
         self.status.set("Max Hold reset")
 
     def record_now(self):
-        with self.lock:
+        with self.data_lock:
             if self.maxhold is None or self.freq is None:
                 messagebox.showwarning("Warning", "No max hold data available to record yet.")
                 return
-            self._record_measurement_locked()
-        self.status.set("Manual record completed")
+            saved_path = self._record_measurement_locked()
+
+        if saved_path:
+            self.status.set(f"Manual record completed | saved: {saved_path}")
+        else:
+            self.status.set("Manual record completed")
 
     def start_scan(self):
+        if self.worker is not None and self.worker.is_alive():
+            messagebox.showwarning("Warning", "Scan thread is already running.")
+            return
 
         try:
             port = self.port.get().strip() or getport()
 
-            self.tiny = TinySA(port)
-
             self.f_low = float(self.start.get())
             self.f_high = float(self.end.get())
             self.points = int(self.points_var.get())
-            self.rbw = float(self.rbw.get())
+            self.rbw_hz = float(self.rbw.get())
 
             self.hold_time_s = float(self.hold_time.get())
             self.min_sweeps_n = int(self.min_sweeps.get())
@@ -245,12 +319,15 @@ class RTPlotter:
 
             self.freq = np.linspace(self.f_low, self.f_high, self.points)
 
+            self.tiny = TinySA(port)
+
         except Exception as e:
             messagebox.showerror("Input Error", str(e))
             return
 
-        with self.lock:
+        with self.data_lock:
             self.running = True
+            self.stop_event.clear()
             self.scan_count = 0
             self.measurement_count = 0
             self.power = None
@@ -262,14 +339,36 @@ class RTPlotter:
 
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
+        self.status.set("Starting scan...")
 
-        threading.Thread(target=self.loop, daemon=True).start()
+        self.worker = threading.Thread(target=self.loop, daemon=True)
+        self.worker.start()
 
     def stop_scan(self):
+        self.stop_btn.config(state=tk.DISABLED)
+        self.status.set("Stopping...")
+        self.stop_event.set()
 
-        with self.lock:
+        tiny = self.tiny
+        if tiny is not None:
+            try:
+                tiny.close()
+            except Exception:
+                pass
+
+        self.root.after(100, self.finish_stop_check)
+
+    def finish_stop_check(self):
+        alive = self.worker is not None and self.worker.is_alive()
+        if alive:
+            self.root.after(100, self.finish_stop_check)
+            return
+
+        with self.data_lock:
             self.running = False
 
+        self.worker = None
+        self.tiny = None
         self.start_btn.config(state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self.status.set("Stopped")
@@ -289,7 +388,7 @@ class RTPlotter:
             writer.writerow(["start_hz", self.f_low])
             writer.writerow(["end_hz", self.f_high])
             writer.writerow(["points", self.points])
-            writer.writerow(["rbw_input_hz", self.rbw])
+            writer.writerow(["rbw_input_hz", self.rbw_hz])
             writer.writerow([])
             writer.writerow(["frequency_hz", "power_dbm"])
             for fval, pval in zip(freq, power):
@@ -312,25 +411,26 @@ class RTPlotter:
                 self.measurement_count
             )
 
-        self.meas_status.set(
+        self.post_meas_status(
             f"Measurements: {self.measurement_count} | Last: {timestamp_str}"
         )
 
         return saved_path
 
     def loop(self):
-
-        while True:
-            with self.lock:
-                if not self.running:
-                    break
-
-            try:
+        try:
+            while not self.stop_event.is_set():
                 t0 = time.time()
 
-                power = self.tiny.scan(self.f_low, self.f_high, self.points, self.rbw)
+                power = self.tiny.scan(
+                    self.f_low,
+                    self.f_high,
+                    self.points,
+                    self.rbw_hz,
+                    self.stop_event
+                )
 
-                with self.lock:
+                with self.data_lock:
                     self.power = power
                     self.scan_count += 1
                     self.cycle_scan_count += 1
@@ -348,7 +448,6 @@ class RTPlotter:
 
                     if self.auto_cycle.get() and ready_by_time and ready_by_sweeps:
                         saved_path = self._record_measurement_locked()
-
                         self.maxhold = None
                         self.cycle_start_time = time.time()
                         self.cycle_scan_count = 0
@@ -357,34 +456,40 @@ class RTPlotter:
 
                 if self.auto_cycle.get():
                     if saved_path is None:
-                        self.status.set(
+                        self.post_status(
                             f"scan {self.scan_count} | building max hold | "
                             f"cycle sweeps {self.cycle_scan_count}/{self.min_sweeps_n} | "
                             f"cycle time {elapsed_cycle:.2f}/{self.hold_time_s:.2f}s | "
                             f"last scan {dt:.2f}s"
                         )
                     else:
-                        self.status.set(
+                        msg = (
                             f"Recorded measurement {self.measurement_count} | "
-                            f"released max hold | last scan {dt:.2f}s | saved: {saved_path}"
+                            f"released max hold | last scan {dt:.2f}s"
                         )
+                        if saved_path:
+                            msg += f" | saved: {saved_path}"
+                        self.post_status(msg)
                 else:
-                    self.status.set(
+                    self.post_status(
                         f"scan {self.scan_count} | continuous mode | "
                         f"cycle sweeps {self.cycle_scan_count} | last scan {dt:.2f}s"
                     )
 
-            except Exception as e:
-                self.status.set(f"Error: {e}")
-                with self.lock:
-                    self.running = False
-                self.start_btn.config(state=tk.NORMAL)
-                self.stop_btn.config(state=tk.DISABLED)
-                break
+        except RuntimeError as e:
+            if str(e) != "Scan stopped by user":
+                self.post_status(f"Runtime error: {e}")
+        except Exception as e:
+            self.post_status(f"Error: {e}")
+        finally:
+            try:
+                if self.tiny is not None:
+                    self.tiny.close()
+            except Exception:
+                pass
 
     def update_plot(self):
-
-        with self.lock:
+        with self.data_lock:
             freq = None if self.freq is None else self.freq.copy()
             power = None if self.power is None else self.power.copy()
             maxhold = None if self.maxhold is None else self.maxhold.copy()
@@ -392,7 +497,6 @@ class RTPlotter:
             mode = self.mode.get()
 
         if freq is not None:
-
             self.raw_line.set_visible(False)
             self.max_line.set_visible(False)
             self.rec_line.set_visible(False)
@@ -403,17 +507,14 @@ class RTPlotter:
                 self.raw_line.set_data(freq, power)
                 self.raw_line.set_visible(True)
                 y = power
-
             elif mode == "Max Hold" and maxhold is not None:
                 self.max_line.set_data(freq, maxhold)
                 self.max_line.set_visible(True)
                 y = maxhold
-
             elif mode == "Last Recorded" and recorded is not None:
                 self.rec_line.set_data(freq, recorded)
                 self.rec_line.set_visible(True)
                 y = recorded
-
             elif power is not None:
                 self.raw_line.set_data(freq, power)
                 self.raw_line.set_visible(True)
@@ -422,8 +523,8 @@ class RTPlotter:
             if y is not None and len(y) > 0:
                 self.ax.set_xlim(freq[0], freq[-1])
 
-                ymin = np.min(y) - 5
-                ymax = np.max(y) + 5
+                ymin = float(np.min(y) - 5)
+                ymax = float(np.max(y) + 5)
 
                 if ymin == ymax:
                     ymin -= 1
@@ -435,11 +536,22 @@ class RTPlotter:
 
         self.root.after(100, self.update_plot)
 
+    def on_close(self):
+        self.stop_event.set()
+
+        try:
+            if self.tiny is not None:
+                self.tiny.close()
+        except Exception:
+            pass
+
+        self.root.destroy()
+
 
 def main():
-
     root = tk.Tk()
     app = RTPlotter(root)
+    root.after(50, app.process_ui_queue)
     root.after(100, app.update_plot)
     root.mainloop()
 
