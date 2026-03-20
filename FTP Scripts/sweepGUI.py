@@ -34,7 +34,7 @@ def getport():
 
 class TinySA:
     def __init__(self, port):
-        self.ser = serial.Serial(port, 115200, timeout=1, write_timeout=2)
+        self.ser = serial.Serial(port=port, baudrate=115200, timeout=1, write_timeout=2)
         self.lock = threading.Lock()
 
     def close(self):
@@ -46,68 +46,60 @@ class TinySA:
                 pass
 
     def _drain_input(self):
-        # Do not loop forever. Drain a few times only.
-        for _ in range(5):
-            waiting = self.ser.in_waiting
-            if waiting <= 0:
-                break
-            self.ser.read(waiting)
-            time.sleep(0.01)
+        # Keep behavior aligned with the reference library logic.
+        while self.ser.in_waiting:
+            self.ser.read_all()
+            time.sleep(0.1)
 
-    def _read_until_with_abort(self, marker, stop_event, hard_timeout_s):
-        start = time.time()
-        buf = bytearray()
-
-        while True:
-            if stop_event.is_set():
-                raise RuntimeError("Scan stopped by user")
-
-            if time.time() - start > hard_timeout_s:
-                raise TimeoutError(f"Timed out waiting for {marker!r}")
-
-            chunk = self.ser.read(1)
-            if chunk:
-                buf += chunk
-                if buf.endswith(marker):
-                    return bytes(buf)
-            else:
-                time.sleep(0.002)
-
-    def scan(self, f_low, f_high, points, rbw, stop_event):
+    def scan(self, f_low, f_high, points, rbw_khz, stop_event):
         with self.lock:
             if stop_event.is_set():
                 raise RuntimeError("Scan stopped by user")
 
+            self.ser.timeout = 1
             self._drain_input()
 
-            if rbw == 0:
-                rbw_k = (f_high - f_low) * 7e-6
+            # GUI now passes RBW in kHz directly.
+            # rbw_khz = 0 follows the same reference-library behavior:
+            # compute RBW from span, then clamp to tinySA limits.
+            if rbw_khz == 0:
+                actual_rbw_khz = (f_high - f_low) * 7e-6
             else:
-                rbw_k = rbw / 1e3
+                actual_rbw_khz = rbw_khz
 
-            rbw_k = max(3, min(600, rbw_k))
+            if actual_rbw_khz < 3:
+                actual_rbw_khz = 3
+            elif actual_rbw_khz > 600:
+                actual_rbw_khz = 600
 
-            self.ser.write(f"rbw {int(rbw_k)}\r".encode())
-            self._read_until_with_abort(b"ch> ", stop_event, hard_timeout_s=3.0)
+            rbw_command = f"rbw {int(actual_rbw_khz)}\r".encode()
+            self.ser.write(rbw_command)
+            self.ser.read_until(b"ch> ")
 
-            timeout = ((f_high - f_low) / 20e3) / (rbw_k ** 2) + points / 500 + 1
-            hard_timeout = max(3.0, timeout * 2.0)
-            self.ser.timeout = 0.2
+            if stop_event.is_set():
+                raise RuntimeError("Scan stopped by user")
 
-            self.ser.write(f"scanraw {int(f_low)} {int(f_high)} {int(points)}\r".encode())
+            timeout = ((f_high - f_low) / 20e3) / (actual_rbw_khz ** 2) + points / 500 + 1
+            self.ser.timeout = max(1.0, timeout * 2.0)
 
-            self._read_until_with_abort(b"{", stop_event, hard_timeout_s=hard_timeout)
-            raw = self._read_until_with_abort(b"}ch> ", stop_event, hard_timeout_s=hard_timeout)
+            scan_command = f"scanraw {int(f_low)} {int(f_high)} {int(points)}\r".encode()
+            self.ser.write(scan_command)
 
-            # Best effort to restore auto RBW. Ignore failures during stop.
+            raw_start = self.ser.read_until(b"{")
+            if not raw_start.endswith(b"{"):
+                raise TimeoutError("Did not receive start of scan payload from tinySA")
+
+            raw_data = self.ser.read_until(b"}ch> ")
+            if not raw_data.endswith(b"}ch> "):
+                raise TimeoutError("Did not receive complete scan payload from tinySA")
+
+            # Restore auto RBW for faster tinySA screen update, same as reference library.
             try:
-                if not stop_event.is_set():
-                    self.ser.write(b"rbw auto\r")
-                    self._read_until_with_abort(b"ch> ", stop_event, hard_timeout_s=3.0)
+                self.ser.write(b"rbw auto\r")
             except Exception:
                 pass
 
-            payload = raw[:-5]
+            payload = raw_data[:-5]  # strip trailing b"}ch> "
 
             expected_len = points * 3
             if len(payload) != expected_len:
@@ -115,19 +107,18 @@ class TinySA:
                     f"Unexpected payload length: got {len(payload)}, expected {expected_len}"
                 )
 
-            data = struct.unpack("<" + "xH" * points, payload)
-            arr = np.array(data, dtype=np.uint16)
+            unpacked = struct.unpack("<" + "xH" * points, payload)
+            raw_array = np.array(unpacked, dtype=np.uint16)
 
             SCALE = 128
-            power = arr / 32 - SCALE
-
-            return power
+            dBm_power = raw_array / 32 - SCALE
+            return dBm_power, int(actual_rbw_khz), float(timeout)
 
 
 class RTPlotter:
     def __init__(self, root):
         self.root = root
-        root.title("tinySA RT Plotter")
+        self.root.title("tinySA RT Plotter")
 
         self.running = False
         self.worker = None
@@ -148,6 +139,9 @@ class RTPlotter:
         self.cycle_start_time = None
         self.cycle_scan_count = 0
 
+        self.actual_rbw_khz = None
+        self.last_scan_timeout = None
+
         self.build_gui()
         self.build_plot()
 
@@ -167,9 +161,14 @@ class RTPlotter:
         self.points_var = tk.StringVar(value="401")
         ttk.Entry(frame, textvariable=self.points_var, width=8).grid(row=0, column=5, sticky="w")
 
-        ttk.Label(frame, text="RBW").grid(row=0, column=6, sticky="w")
+        ttk.Label(frame, text="RBW (kHz)").grid(row=0, column=6, sticky="w")
         self.rbw = tk.StringVar(value="0")
         ttk.Entry(frame, textvariable=self.rbw, width=8).grid(row=0, column=7, sticky="w")
+
+        ttk.Label(
+            frame,
+            text="0 = auto/calc"
+        ).grid(row=0, column=8, sticky="w", padx=(8, 0))
 
         ttk.Label(frame, text="Display").grid(row=1, column=0, sticky="w")
         self.mode = tk.StringVar(value="Raw")
@@ -194,7 +193,7 @@ class RTPlotter:
             frame,
             text="Auto Cycle Max Hold",
             variable=self.auto_cycle
-        ).grid(row=1, column=6, columnspan=2, sticky="w")
+        ).grid(row=1, column=6, columnspan=3, sticky="w")
 
         ttk.Label(frame, text="Port").grid(row=2, column=0, sticky="w")
         self.port = tk.StringVar()
@@ -303,7 +302,7 @@ class RTPlotter:
             self.f_low = float(self.start.get())
             self.f_high = float(self.end.get())
             self.points = int(self.points_var.get())
-            self.rbw_hz = float(self.rbw.get())
+            self.rbw_khz = float(self.rbw.get())
 
             self.hold_time_s = float(self.hold_time.get())
             self.min_sweeps_n = int(self.min_sweeps.get())
@@ -312,13 +311,14 @@ class RTPlotter:
                 raise ValueError("End Hz must be greater than Start Hz")
             if self.points < 2:
                 raise ValueError("Points must be at least 2")
+            if self.rbw_khz < 0:
+                raise ValueError("RBW (kHz) must be >= 0")
             if self.hold_time_s < 0:
                 raise ValueError("Hold Time must be >= 0")
             if self.min_sweeps_n < 1:
                 raise ValueError("Min Sweeps must be at least 1")
 
             self.freq = np.linspace(self.f_low, self.f_high, self.points)
-
             self.tiny = TinySA(port)
 
         except Exception as e:
@@ -336,6 +336,8 @@ class RTPlotter:
             self.last_recorded_timestamp = None
             self.cycle_start_time = time.time()
             self.cycle_scan_count = 0
+            self.actual_rbw_khz = None
+            self.last_scan_timeout = None
 
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
@@ -388,7 +390,8 @@ class RTPlotter:
             writer.writerow(["start_hz", self.f_low])
             writer.writerow(["end_hz", self.f_high])
             writer.writerow(["points", self.points])
-            writer.writerow(["rbw_input_hz", self.rbw_hz])
+            writer.writerow(["rbw_input_khz", self.rbw_khz])
+            writer.writerow(["rbw_effective_khz", self.actual_rbw_khz if self.actual_rbw_khz is not None else ""])
             writer.writerow([])
             writer.writerow(["frequency_hz", "power_dbm"])
             for fval, pval in zip(freq, power):
@@ -422,11 +425,11 @@ class RTPlotter:
             while not self.stop_event.is_set():
                 t0 = time.time()
 
-                power = self.tiny.scan(
+                power, actual_rbw_khz, scan_timeout = self.tiny.scan(
                     self.f_low,
                     self.f_high,
                     self.points,
-                    self.rbw_hz,
+                    self.rbw_khz,
                     self.stop_event
                 )
 
@@ -434,6 +437,8 @@ class RTPlotter:
                     self.power = power
                     self.scan_count += 1
                     self.cycle_scan_count += 1
+                    self.actual_rbw_khz = actual_rbw_khz
+                    self.last_scan_timeout = scan_timeout
 
                     if self.maxhold is None:
                         self.maxhold = power.copy()
@@ -452,19 +457,24 @@ class RTPlotter:
                         self.cycle_start_time = time.time()
                         self.cycle_scan_count = 0
 
+                    measurement_count = self.measurement_count
+                    cycle_scan_count = self.cycle_scan_count
+
                 dt = time.time() - t0
 
                 if self.auto_cycle.get():
                     if saved_path is None:
                         self.post_status(
-                            f"scan {self.scan_count} | building max hold | "
-                            f"cycle sweeps {self.cycle_scan_count}/{self.min_sweeps_n} | "
+                            f"scan {self.scan_count} | RBW {actual_rbw_khz} kHz | "
+                            f"serial timeout {scan_timeout:.2f}s | "
+                            f"building max hold | cycle sweeps {cycle_scan_count}/{self.min_sweeps_n} | "
                             f"cycle time {elapsed_cycle:.2f}/{self.hold_time_s:.2f}s | "
                             f"last scan {dt:.2f}s"
                         )
                     else:
                         msg = (
-                            f"Recorded measurement {self.measurement_count} | "
+                            f"Recorded measurement {measurement_count} | "
+                            f"RBW {actual_rbw_khz} kHz | "
                             f"released max hold | last scan {dt:.2f}s"
                         )
                         if saved_path:
@@ -472,8 +482,10 @@ class RTPlotter:
                         self.post_status(msg)
                 else:
                     self.post_status(
-                        f"scan {self.scan_count} | continuous mode | "
-                        f"cycle sweeps {self.cycle_scan_count} | last scan {dt:.2f}s"
+                        f"scan {self.scan_count} | RBW {actual_rbw_khz} kHz | "
+                        f"serial timeout {scan_timeout:.2f}s | "
+                        f"continuous mode | cycle sweeps {cycle_scan_count} | "
+                        f"last scan {dt:.2f}s"
                     )
 
         except RuntimeError as e:
